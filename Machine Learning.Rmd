@@ -1,0 +1,181 @@
+---
+title: "Machine Learning Project"
+author: "Hui ZENG"
+date: "2020/5/24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installing Packages and Getting Data
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r packages}
+install.packages('lattice')
+install.packages('ggplot2')
+install.packages('caret')
+install.packages('rpart')
+install.packages('tibble')
+install.packages('bitops')
+install.packages('rattle')
+install.packages('kernlab')
+install.packages('randomForest')
+install.packages('gbm')
+install.packages('e1071')
+library(tibble)
+library(bitops)
+library(rpart)
+library(rattle)
+library(e1071)
+library(ggplot2)
+library(lattice)
+library(caret)
+library(kernlab)
+library(randomForest)
+library(gbm)
+```
+
+## Getting and Cleaning Data
+
+Read data from computer and check the dimension of two datasets. Data from testing dataset is for testing and data from training dataset is for training
+
+```{r datasets}
+traindata <- read.csv('~/Downloads/pml-training.csv', header = TRUE, na.strings=c("NA","#DIV/0!",""))
+validdata <- read.csv('~/Downloads/pml-testing.csv', header = TRUE, na.strings=c("NA","#DIV/0!",""))
+dim(traindata);dim(validdata)
+```
+
+## Getting Training Data Set and Testing Data Set
+
+training datasets divided into two parts. 70% data is in training set and 30% data is in testing set
+
+```{r data partition}
+set.seed(2332)
+inTrain <- createDataPartition(traindata$classe, p = 0.7, list = FALSE)
+trainset <- traindata[inTrain, ]
+testset <- traindata[-inTrain, ]
+dim(trainset);dim(testset)
+```
+
+## Continue to Clean Data
+
+remove variance of some variables which equal to zero and keep the columns of training set and testing set same
+
+```{r data clean}
+nzv <- nearZeroVar(trainset, saveMetrics=TRUE)
+trainset <- trainset[,nzv$nzv==FALSE]
+nzv<- nearZeroVar(testset,saveMetrics=TRUE)
+testset <- testset[,nzv$nzv==FALSE]
+
+trainset <- trainset[c(-1)]
+
+training <- trainset
+for(i in 1:length(trainset)) {
+  if( sum( is.na( trainset[, i] ) ) /nrow(trainset) >= .7) {
+    for(j in 1:length(training)) {
+      if( length( grep(names(trainset[i]), names(training)[j]) ) == 1)  {
+        training <- training[ , -j]
+      }   
+    } 
+  }
+}
+trainset <- training
+rm(training)
+
+clean1 <- colnames(trainset)
+clean2 <- colnames(trainset[, -58])  
+testset<- testset[clean1]         
+dim(testset)
+
+for (i in 1:length(testset) ) {
+  for(j in 1:length(trainset)) {
+    if( length( grep(names(trainset[i]), names(testset)[j]) ) == 1)  {
+      class(testset[j]) <- class(trainset[i])
+    }      
+  }      
+}
+testset <- rbind(trainset[2, ] , testset)
+testset <- testset[-1,]
+```
+
+## Building Models
+
+in order to choose the best algorithm to predict valid data, I will train three machine learning algorithm. They are classification trees, random forests and generalized boosted regression
+
+## Predicting with trees
+
+list the number of observations of five classes and plot total accelerated speed of belt to total accelerated speed of arm. Then use classification trees to train data in training set.
+
+```{r classification trees}
+table(trainset$classe)
+qplot(total_accel_arm, total_accel_belt, colour = classe, data = trainset)
+set.seed(11111)
+modelfit <- rpart(classe ~ ., data = trainset, method = 'class')
+```
+
+## Ploting trees
+
+plot normal classification trees and fancy classification trees. Then use trained model to predict data in testing set and check the result. The accuracy of this model is 0.8743
+
+```{r ploting trees}
+plot(modelfit, uniform = TRUE, main = 'Classification Tree')
+text(modelfit, use.n = TRUE, all = TRUE, cex = 0.8)
+fancyRpartPlot(modelfit)
+predicttree <- predict(modelfit, testset, type = 'class')
+cmtree <- confusionMatrix(predicttree, testset$classe)
+cmtree
+```
+
+## Random forests
+
+use random forests to train data in training set 
+
+```{r random forests}
+controlrf <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modelfit2 <- train(classe~., data = trainset, method = 'rf', trControl = controlrf)
+modelfit2$finalModel
+getTree(modelfit2$finalModel, k=2)
+```
+
+## Predicting New Values
+
+use trained model to predict data in testing set and check the result of prediction. The accuracy of this model is 0.9995
+
+```{r predict}
+pred <- predict(modelfit2, testset); testset$predRight <- pred==testset$classe
+table(pred, testset$classe)
+plot(modelfit2)
+predictrf <- predict(modelfit2, testset)
+cmrf <- confusionMatrix(predictrf, testset$classe)
+cmrf
+```
+
+## Boosting 
+
+use generalized boosted regression to train data in training set and to predict data in testing set. Plot the result of prediction in testing set and check the accuracy of this model(0.9978)
+
+```{r boosting}
+set.seed(11111)
+controlgbm <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modelfit3 <- train(classe~., method = 'gbm', data = trainset, trControl = controlgbm, verbose = FALSE)
+modelfit3$finalModel
+qplot(predict(modelfit3, testset), classe, data = testset)
+predictboost <- predict(modelfit3, testset)
+cmboost <- confusionMatrix(predictboost, testset$classe)
+cmboost
+```
+
+## Getting Results from Valide Data
+
+As the accuracy of three models above is 0.8743, 0.9995 and 0.9978 respectively. So use random forests algorithm to predict data in valid dataset
+
+```{r valid data}
+results <- predict(modelfit2, newdata = validdata)
+results
+```
+
+
+
